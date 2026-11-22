@@ -22,7 +22,7 @@ RUN corepack enable && corepack prepare pnpm --activate
 RUN CI=true pnpm install && pnpm run build
 
 
-FROM python:3.14-slim
+FROM python:3.14-slim AS metube
 
 WORKDIR /app
 
@@ -103,3 +103,19 @@ ARG VERSION=dev
 ENV METUBE_VERSION=$VERSION
 
 ENTRYPOINT ["/usr/bin/tini", "-g", "--", "./docker-entrypoint.sh"]
+
+# Fork-specific indexer. The `metube` target above remains a plain downloader.
+FROM rust:1.98-bookworm AS scryer-builder
+WORKDIR /build
+COPY scryer/service/Cargo.toml scryer/service/Cargo.lock ./
+COPY scryer/service/src ./src
+COPY scryer/service/tests ./tests
+RUN cargo build --release --locked --bin scryer-youtube-library-service
+
+FROM metube AS metube-scryer
+COPY --from=scryer-builder /build/target/release/scryer-youtube-library-service /usr/local/bin/scryer-youtube-library-service
+COPY scryer/supervise.py /app/scryer/supervise.py
+ENV SCRYER_INDEXER_URL=http://127.0.0.1:8090
+ENV YOUTUBE_LIBRARY_BIND=127.0.0.1:8090
+ENV METUBE_VERSION=scryer-0.1.0
+ENTRYPOINT ["/usr/bin/tini", "-g", "--", "python3", "/app/scryer/supervise.py"]

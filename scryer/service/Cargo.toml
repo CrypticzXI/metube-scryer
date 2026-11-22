@@ -1,0 +1,36 @@
+[package]
+name = "scryer-youtube-library-service"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+description = "Read-only yt-dlp episode indexer backend for Scryer YouTube Library"
+default-run = "scryer-youtube-library-service"
+
+[workspace]
+
+[features]
+test-fixtures = []
+
+[[bin]]
+name = "youtube-library-fixture"
+path = "tests/support/provider.rs"
+required-features = ["test-fixtures"]
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+axum = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+scryer-plugin-sdk = "=3.18.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+url = "2"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

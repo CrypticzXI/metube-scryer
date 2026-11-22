@@ -53,3 +53,7 @@ Thumbs.db
 
 __pycache__
 .venv
+
+# Scryer integration build output
+**/target/
+/dist/

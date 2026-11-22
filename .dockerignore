@@ -2,3 +2,5 @@
 .venv
 ui/.angular
 ui/node_modules
+**/target
+dist

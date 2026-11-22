@@ -1,5 +1,7 @@
 # MeTube
 
+This fork adds a [Scryer HTTP indexer integration](https://github.com/CrypticzXI/metube-scryer/tree/feature/scryer-http-indexer/scryer) using yt-dlp discovery and the existing MeTube download client. See that guide for setup, verified episode matching and a dedicated YouTube library.
+
 ![Build Status](https://github.com/alexta69/metube/actions/workflows/main.yml/badge.svg)
 ![Docker Pulls](https://img.shields.io/docker/pulls/alexta69/metube.svg)
 
@@ -48,6 +50,7 @@ MeTube is configured with environment variables: `-e NAME=value` on the `docker 
 | `CHOWN_DIRS` | `true` | Make `PUID:PGID` the owner of the download, state and temp directories at startup. With `false`, MeTube's user must already have access. |
 | `LOGLEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` or `NONE`. |
 | `ENABLE_ACCESSLOG` | `false` | Log every HTTP request. |
+| `SCRYER_INDEXER_URL` | empty (plain image), `http://127.0.0.1:8090` (fork image) | Enables Scryer indexer routes using the bundled metadata worker. [Setup](https://github.com/CrypticzXI/metube-scryer/tree/feature/scryer-http-indexer/scryer). |
 | `DEFAULT_THEME` | `auto` | UI theme: `light`, `dark`, or `auto` to follow the system. |
 
 ### Downloads

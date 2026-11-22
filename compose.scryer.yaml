@@ -1,0 +1,19 @@
+services:
+  metube:
+    build:
+      context: .
+      target: metube-scryer
+    image: metube-scryer:local
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      DOWNLOAD_DIR: /downloads
+      STATE_DIR: /state
+      DELETE_FILE_ON_TRASHCAN: "false"
+      YOUTUBE_MAX_HEIGHT: "1080"
+    volumes:
+      - ./downloads:/downloads
+      - ./state:/state

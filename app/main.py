@@ -21,6 +21,7 @@ from watchfiles import awatch
 
 import bg_tasks
 import format_catalog
+import scryer_indexer
 from ytdl import DownloadQueueNotifier, DownloadQueue, Download
 from download_options import DownloadOptions
 from subscriptions import SubscriptionManager, SubscriptionNotifier, SubscriptionInfo, browse_playlist, coerce_optional_bool
@@ -81,6 +82,7 @@ class Config:
         'DELETE_FILE_ON_TRASHCAN': 'false',
         'STATE_DIR': '.',
         'URL_PREFIX': '',
+        'SCRYER_INDEXER_URL': '',
         'PUBLIC_HOST_URL': 'download/',
         'PUBLIC_HOST_AUDIO_URL': 'audio_download/',
         'OUTPUT_TEMPLATE': '%(title)s.%(ext)s',
@@ -533,6 +535,7 @@ def _socketio_origin_allowed(origin, environ):
 
 
 app = web.Application(middlewares=[cross_origin_guard, state_dir_guard])
+scryer_indexer.install(app, url_prefix=config.URL_PREFIX, worker_url=config.SCRYER_INDEXER_URL)
 _cors_origins = [o.strip() for o in config.CORS_ALLOWED_ORIGINS.split(',') if o.strip()] if config.CORS_ALLOWED_ORIGINS else []
 if '*' in _cors_origins and len(_cors_origins) > 1:
     log.warning(
