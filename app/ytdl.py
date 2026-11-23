@@ -13,6 +13,7 @@ from functools import partial
 import logging
 import re
 import signal
+import subprocess
 import sys
 import types
 from typing import Any, Optional
@@ -118,7 +119,7 @@ class _ExtractYtdlLogger(_DownloadYtdlLogger):
 
 
 # Python 3.14 switches the default multiprocessing start method on Linux
-# (this app's only supported deployment target, per the Dockerfile) from fork
+# (the Docker deployment target) from fork
 # to forkserver. Download._download relies on inheriting process state the
 # way fork provides, so pin it back on Linux specifically.
 #
@@ -163,6 +164,7 @@ _MP_CTX = (
     if sys.platform.startswith("linux") and "fork" in multiprocessing.get_all_start_methods()
     else multiprocessing.get_context()
 )
+_IS_WINDOWS = sys.platform == 'win32'
 
 # Grace period between SIGINT (lets yt-dlp/ffmpeg finalize the partial file,
 # e.g. when cancelling a livestream) and SIGKILL escalation.
@@ -832,6 +834,24 @@ def _download_info_from_record(record: dict[str, Any]) -> DownloadInfo:
     info.__setstate__({key: from_json_compatible(value) for key, value in record.items()})
     return info
 
+
+def _download_worker_entry(state, status_queue):
+    """Windows spawn entry: construct child state without parent runtime objects.
+
+    In particular, no asyncio loop, notifier, executor or Process instance is
+    pickled. Hooks and yt-dlp itself are constructed in the new interpreter.
+    """
+    worker = Download.__new__(Download)
+    worker._init_state(state['info'])
+    for name in (
+        'download_dir', 'temp_dir', 'state_dir', 'output_template',
+        'output_template_chapter', 'allow_private', 'format', 'ytdl_opts',
+    ):
+        setattr(worker, name, state[name])
+    worker.status_queue = status_queue
+    worker._download()
+
+
 class Download:
     manager = None
 
@@ -1139,7 +1159,13 @@ class Download:
         if Download.manager is None:
             Download.manager = _MP_CTX.Manager()
         self.status_queue = Download.manager.Queue()
-        self.proc = _MP_CTX.Process(target=self._download)
+        if _IS_WINDOWS:
+            self.proc = _MP_CTX.Process(
+                target=_download_worker_entry,
+                args=(self._worker_state(), self.status_queue),
+            )
+        else:
+            self.proc = _MP_CTX.Process(target=self._download)
         self.proc.start()
         self.loop = asyncio.get_running_loop()
         self.notifier = notifier
@@ -1154,6 +1180,60 @@ class Download:
         if self.status_queue is not None:
             self.status_queue.put(None)
         await self.status_task
+
+    def _worker_state(self):
+        """Only the download inputs cross Windows' spawn boundary.
+
+        Keep this allow-list separate from self.__dict__: a retry may still
+        carry unpicklable parent event-loop and notification state.
+        """
+        return {
+            'info': self.info,
+            'download_dir': self.download_dir,
+            'temp_dir': self.temp_dir,
+            'state_dir': getattr(self, 'state_dir', None),
+            'output_template': self.output_template,
+            'output_template_chapter': self.output_template_chapter,
+            'allow_private': self.allow_private,
+            'format': self.format,
+            'ytdl_opts': self.ytdl_opts,
+        }
+
+    def _terminate_windows_tree(self):
+        """Stop this download and its ffmpeg children without console signals."""
+        pid = self.proc.pid
+        if isinstance(pid, int) and pid > 0:
+            taskkill = os.path.join(
+                os.environ.get('SystemRoot', r'C:\Windows'), 'System32', 'taskkill.exe')
+            try:
+                result = subprocess.run(
+                    [taskkill, '/PID', str(pid), '/T', '/F'],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    check=False,
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+                )
+                if result.returncode == 0:
+                    return
+                log.warning(
+                    'Windows process-tree cancellation returned exit code %s; '
+                    'falling back to worker termination', result.returncode)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                # Tool stderr and exception messages can contain configured
+                # paths or other operator data. The category is enough to
+                # distinguish a missing utility, access denial and a timeout.
+                log.warning(
+                    'Windows process-tree cancellation failed (%s); '
+                    'falling back to worker termination', type(exc).__name__)
+        # A worker may have exited between the alive check and taskkill. kill()
+        # is still the fallback if the utility is unavailable or refused it.
+        try:
+            if self.proc.is_alive():
+                self.proc.kill()
+        except (OSError, ValueError) as exc:
+            log.warning('Windows worker termination failed (%s)', type(exc).__name__)
 
     def _signal_group(self, sig):
         """Send *sig* to the download's process group, falling back to the
@@ -1185,20 +1265,29 @@ class Download:
 
     def _kill_if_alive(self):
         if self.running():
+            if _IS_WINDOWS:
+                self._terminate_windows_tree()
+                return
             log.info(f"Escalating cancel to SIGKILL for: {self.info.title}")
             self._signal_group(signal.SIGKILL)
 
     def cancel(self):
         log.info(f"Cancelling download: {self.info.title}")
         if self.running():
-            # SIGINT first so yt-dlp/ffmpeg can finalize the partial file
-            # (livestream recordings stay playable); SIGKILL after a grace
-            # period if the process ignores it.
-            interrupted = self._signal_group(signal.SIGINT)
-            if interrupted and self.loop is not None:
-                self.loop.call_later(_CANCEL_GRACE_SECONDS, self._kill_if_alive)
+            if _IS_WINDOWS:
+                # Windows os.kill(SIGINT) does not provide Unix process-group
+                # semantics. Terminate only this worker's tree, including any
+                # ffmpeg children, rather than signalling the browser server.
+                self._terminate_windows_tree()
             else:
-                self._kill_if_alive()
+                # SIGINT first so yt-dlp/ffmpeg can finalize the partial file
+                # (livestream recordings stay playable); SIGKILL after a grace
+                # period if the process ignores it.
+                interrupted = self._signal_group(signal.SIGINT)
+                if interrupted and self.loop is not None:
+                    self.loop.call_later(_CANCEL_GRACE_SECONDS, self._kill_if_alive)
+                else:
+                    self._kill_if_alive()
         self.canceled = True
         if self.status_queue is not None:
             self.status_queue.put(None)

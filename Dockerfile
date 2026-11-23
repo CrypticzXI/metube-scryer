@@ -117,5 +117,5 @@ COPY --from=scryer-builder /build/target/release/scryer-youtube-library-service 
 COPY scryer/supervise.py /app/scryer/supervise.py
 ENV SCRYER_INDEXER_URL=http://127.0.0.1:8090
 ENV YOUTUBE_LIBRARY_BIND=127.0.0.1:8090
-ENV METUBE_VERSION=scryer-0.1.0
+ENV METUBE_VERSION=scryer-0.2.0
 ENTRYPOINT ["/usr/bin/tini", "-g", "--", "python3", "/app/scryer/supervise.py"]

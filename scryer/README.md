@@ -12,6 +12,8 @@ The worker only reads metadata. It has no download endpoint or separate queue. I
 
 ## Start the fork
 
+For native Windows, download the **metube-scryer-windows-x64** artifact from the [Windows build workflow](https://github.com/CrypticzXI/metube-scryer/actions/workflows/windows.yml), extract its ZIP and run **Start-MeTube.cmd**. Python, yt-dlp, Deno and FFmpeg are bundled. See the [Windows guide](windows/README.md).
+
 From the repository root:
 
 ```sh
